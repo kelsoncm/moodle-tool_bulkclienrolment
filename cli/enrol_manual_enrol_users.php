@@ -85,93 +85,6 @@ if (!$options['filename']) {
 }
 
 
-// Verifica se o curso existe
-function get_course_by_shortname($shortname)
-{
-    $response = moodle_api_call('core_course_get_courses_by_field', [
-        'field' => 'shortname',
-        'value' => $shortname
-    ]);
-    return $response['courses'][0] ?? null;
-}
-
-/*
-// Configurações do Moodle
-define('MOODLE_URL', 'https://seumoodle.com/webservice/rest/server.php');
-define('MOODLE_TOKEN', 'SEU_TOKEN_AQUI');
-define('MOODLE_FORMAT', 'json');
-
-// Mapeamento de papéis
-$roleMap = [
-    'student' => 5,
-    'teacher' => 3,
-    'editingteacher' => 4
-];
-
-// Função para chamada à API do Moodle
-function moodle_api_call($function, $params = [], $method = 'GET')
-{
-    $params['wstoken'] = MOODLE_TOKEN;
-    $params['wsfunction'] = $function;
-    $params['moodlewsrestformat'] = MOODLE_FORMAT;
-
-    $url = MOODLE_URL;
-    $options = [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_CUSTOMREQUEST => $method
-    ];
-
-    if ($method === 'GET') {
-        $url .= '?' . http_build_query($params);
-    } else {
-        $options[CURLOPT_POSTFIELDS] = http_build_query($params);
-    }
-
-    $ch = curl_init($url);
-    curl_setopt_array($ch, $options);
-    $response = curl_exec($ch);
-    curl_close($ch);
-
-    return json_decode($response, true);
-}
-
-// Verifica se o usuário existe
-function get_user_by_username($username)
-{
-    $response = moodle_api_call('core_user_get_users', [
-        'criteria[0][key]' => 'username',
-        'criteria[0][value]' => $username
-    ]);
-    return $response['users'][0] ?? null;
-}
-
-// Cria usuário com auth manual
-function create_user($username, $firstname, $lastname)
-{
-    $email = $username . '@seudominio.com';
-    $response = moodle_api_call('core_user_create_users', [
-        'users[0][username]' => $username,
-        'users[0][firstname]' => $firstname,
-        'users[0][lastname]' => $lastname,
-        'users[0][auth]' => 'manual',
-        'users[0][password]' => 'SenhaForte123!',
-        'users[0][email]' => $email
-    ], 'POST');
-
-    return $response[0]['id'] ?? null;
-}
-
-// Matricula o usuário
-function enrol_user($userId, $courseId, $roleId)
-{
-    moodle_api_call('enrol_manual_enrol_users', [
-        'enrolments[0][roleid]' => $roleId,
-        'enrolments[0][userid]' => $userId,
-        'enrolments[0][courseid]' => $courseId
-    ], 'POST');
-}
-*/
-
 function get_enrol_instance($course_id, $enrol_type = 'manual')
 {
     foreach (\enrol_get_instances($course_id, FALSE) as $i) {
@@ -182,7 +95,7 @@ function get_enrol_instance($course_id, $enrol_type = 'manual')
     return null;
 }
 
-// Processa o CSV
+
 function process_csv($filePath)
 {
     global $DB;
