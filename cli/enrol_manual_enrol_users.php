@@ -39,15 +39,8 @@ require_once($CFG->dirroot . '/local/suap/locallib.php');
 require_once($CFG->dirroot . '/local/suap/classes/Jsv4/Validator.php');
 require_once($CFG->dirroot . '/local/suap/api/servicelib.php');
 
-// Get the cli options.
-list($options, $unrecognized) = cli_get_params(
-    ['filename' => null],
-    ['help' => false],
-    ['h' => 'help']
-);
-
-$help =
-    'TOOL BULK CLIENT ENROLMENT
+define('ENROL_MANUAL_ENROL_USERS_HELP_MESSAGE', '
+TOOL BULK CLIENT ENROLMENT
 ========
 Please include a list of options and associated actions.
 
@@ -67,104 +60,245 @@ OPTIONS:
     --quiet, -q       Print less output
     --debug, -d       Print debug output
     --dryrun, -n      Perform a dry run without making any changes
-';
-if ($unrecognized) {
-    $unrecognized = implode("\n\t", $unrecognized);
-    cli_error(get_string('cliunknowoption', 'admin', $unrecognized));
-}
+');
 
 
-if ($options['help']) {
-    cli_writeln($help);
-    die();
-}
-
-if (!$options['filename']) {
-    cli_writeln($help);
-    die();
-}
-
-
-function get_enrol_instance($course_id, $enrol_type = 'manual')
+class enrol_manual_enrol_users
 {
-    foreach (\enrol_get_instances($course_id, FALSE) as $i) {
-        if ($i->enrol == $enrol_type) {
-            return $i;
+
+    private $options = null;
+    private $unrecognized = null;
+    private $filePath = null;
+    private $courses = [];
+    private $course_shortname = null;
+    private $course = null;
+    private $row = null;
+    private $user_username = null;
+    private $user = null;
+    private $enrol_type = null;
+    private $role_name = null;
+    private $role = null;
+
+    public function __construct()
+    {
+        $this->get_options();
+        $this->validate_options();
+    }
+
+    function get_options()
+    {
+        // Get the cli options.
+        list($this->options, $this->unrecognized) = cli_get_params(
+            ['filename' => null],
+            ['help' => false],
+            ['h' => 'help']
+        );
+    }
+
+    function validate_options()
+    {
+        if ($this->unrecognized) {
+            $unrecognized = implode("\n\t", $this->unrecognized);
+            cli_error(get_string('cliunknowoption', 'admin', $this->unrecognized));
+        }
+
+        if ($this->options['help']) {
+            cli_writeln(ENROL_MANUAL_ENROL_USERS_HELP_MESSAGE);
+            die();
+        }
+
+        if (!$this->options['filename']) {
+            cli_writeln(ENROL_MANUAL_ENROL_USERS_HELP_MESSAGE);
+            die();
+        }
+        $this->filePath = $this->options['filename'];
+    }
+
+    function open_csv_file()
+    {
+        // Verifica se o arquivo existe e pode ser aberto.
+        if (!file_exists($this->filePath)) {
+            die("Arquivo CSV não encontrado: $this->filePath.\n");
+        }
+
+        $handle = fopen($this->filePath, 'rb');
+        if (!$handle) {
+            die("Erro ao abrir o arquivo $this->filePath.\n");
+        }
+
+        // Tratar BOM (Byte Order Mark) para arquivos UTF-8.
+        $primeirosBytes = fread($handle, 3);
+        $temBOM = ($primeirosBytes === "\xEF\xBB\xBF");
+        if (!$temBOM) {
+            rewind($handle);
+        }
+
+        return $handle;
+    }
+
+    function get_row($header, $data)
+    {
+        $this->row = array_combine($header, $data);
+
+        $this->user_username = $this->row['user_username'];
+        $this->course_shortname = $this->row['course_shortname'];
+
+        return $this->row !== false && $this->row !== null && count($this->row) > 0;
+    }
+
+    function get_role()
+    {
+        global $DB;
+
+        $this->role_name = isset($this->row['role_name']) ? $this->row['role_name'] : 'student';
+        $this->role = $DB->get_record('role', ['shortname' => $this->role_name]);
+        return $this->role != null;
+    }
+
+    function create_or_update_course()
+    {
+        global $DB;
+
+        if (in_array($this->course_shortname, $this->courses)) {
+            $this->course = $this->courses[$this->course_shortname];
+            return false;
+        }
+
+        $this->course = $DB->get_record('course', ['shortname' => $this->course_shortname]);
+        if ($this->course) {
+            $this->course->context = \context_course::instance($this->course->id);
+            $this->courses[$this->course_shortname] = $this->course;
+            return false;
+        }
+
+        $data = [
+            "category" => 1,
+            "shortname" => $this->course_shortname,
+            "fullname" => $this->course_shortname,
+            "idnumber" => $this->course_shortname,
+            "visible" => 0,
+            "enablecompletion" => 1,
+            // "startdate"=>time(),
+            "showreports" => 1,
+            "completionnotify" => 1,
+
+            // "customfield_campus_id" => $this->json->campus->id,
+            // "customfield_campus_descricao" => $this->json->campus->descricao,
+            // "customfield_campus_sigla" => $this->json->campus->sigla,
+
+            // "customfield_curso_id" => $this->json->curso->id,
+            // "customfield_curso_codigo" => $this->json->curso->codigo,
+            // "customfield_curso_descricao" => $this->json->curso->descricao,
+            // "customfield_curso_nome" => $this->json->curso->nome,
+        ];
+
+        $this->course = \create_course((object)$data);
+        return true;
+    }
+
+    function create_or_update_user()
+    {
+        global $DB;
+        $this->user = $DB->get_record("user", ["username" => $user_username]);
+        return $this->user != null;
+    }
+
+    function get_enrol()
+    {
+        $this->enrol_type = isset($this->row['enrol_type']) ? $this->row['enrol_type'] : 'manual';
+        $this->course->enrol = enrol_get_plugin($this->enrol_type);
+        foreach (\enrol_get_instances($this->course->id, FALSE) as $i) {
+            if ($i->enrol == $this->enrol_type) {
+                $this->course->enrol_instance = $i->enrol;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    function create_or_update_enrolment()
+    {
+        if (!is_enrolled($this->course->context, $this->user)) {
+            $this->course->enrol->enrol_user($this->course->enrol_instance, $this->user->id, 5, time(), 0, \ENROL_USER_ACTIVE);
+
+            $enrol = new \enrol_manual_plugin();
+            $enrol->enrol_user($this->course->enrol_instance, $this->user->id, $this->role->id);
+        }
+
+        return true;
+    }
+
+    function add_user_to_groups()
+    {
+        global $DB;
+
+        foreach (explode($this->row['group_names'], ',') as $group_name) {
+            $group = $DB->get_record('groups', ['courseid' => $this->course->id, 'name' => $group_name]);
+            if ($group) {
+                $groupid = $group->id;
+                echo "Grupo $group_name 🆕. ";
+            } else {
+                $groupid = \groups_create_group((object)['courseid' => $this->course->id, 'name' => $group_names]);
+                echo "Grupo $group_name ✅. ";
+            }
+
+            if ($DB->get_record('groups_members', ['groupid' => $groupid, 'userid' => $this->user->id])) {
+                echo "Engrupamento $group_name ✅.\n";
+            } else {
+                \groups_add_member($groupid, $this->user->id);
+                echo "Engrupamento $group_name 🆕.\n";
+            }
         }
     }
-    return null;
-}
 
+    function process_csv()
+    {
+        $handle = $this->open_csv_file();
 
-function process_csv($filePath)
-{
-    global $DB;
-    $courses = [];
-
-    if (!file_exists($filePath)) {
-        echo "Arquivo CSV não encontrado: $filePath\n";
-        exit(1);
-    }
-
-    if (($handle = fopen($filePath, 'r')) !== false) {
         $header = fgetcsv($handle);
+        $i = 1;
+        echo "Row #1. Header ✅.\n";
         while (($data = fgetcsv($handle)) !== false) {
-            $row = array_combine($header, $data);
-            $username = $row['username'];
-            $courseShortname = $row['course_shortname'];
-            $groupname = $row['groupname'];
-            echo "Tentando matricular '$username' no curso '$courseShortname' como 'student' no grupo '$groupname'... ";
-            if (!in_array($courseShortname, $courses)) {
-                $course = $DB->get_record('course', ['shortname' => $courseShortname]);
-                if (!$course) {
-                    echo "Curso não encontrado.\n";
-                    continue;
-                }
-
-                $course->context = \context_course::instance($course->id);
-                $course->enrol = enrol_get_plugin('manual');
-                $course->enrol_instance = get_enrol_instance($course->id, 'manual');
-                if ($course->enrol_instance == null) {
-                    echo "Curso não tem enrol 'manual'.\n";
-                    continue;
-                }
-                $courses[$courseShortname] = $course;
-            } else {
-                $course = $courses[$courseShortname];
-            }
-
-            $user = $DB->get_record("user", ["username" => $username]);
-
-            if (!$user) {
-                echo "Usuário não encontrado.\n";
+            $i++;
+            if (!$this->get_row($header, $data)) {
+                echo "Row #$i ❌.\n";
                 continue;
-            }
-
-            if (is_enrolled($course->context, $user)) {
-                echo "Usuário já está matriculado no curso. ";
             } else {
-                $course->enrol->enrol_user($course->enrol_instance, $user->id, 5, time(), 0, \ENROL_USER_ACTIVE);
-                echo "Usuário matriculado com sucesso. ";
+                echo "Row #$i. ";
             }
 
-            $group = $DB->get_record('groups', ['courseid' => $course->id, 'name' => $groupname]);
-            if (!$group) {
-                $groupid = \groups_create_group((object)['courseid' => $course->id, 'name' => $groupname]);
-                $group = $DB->get_record('groups', ['id' => $groupid]);
-                echo "Grupo criado. ";
-            }
-
-            $group_membership = $DB->get_record('groups_members', ['groupid' => $group->id, 'userid' => $user->id]);
-            if ($group_membership) {
-                echo "Usuário já está no grupo.\n";
+            if (!$this->get_role()) {
+                echo "Role '$this->role_name'❌. ";
                 continue;
+            } else {
+                echo "Role '$this->role_name'✅. ";
             }
-            \groups_add_member($group->id, $user->id);
-            echo "Usuário inserido no grupo.\n";
+
+            echo "Course '$this->course_shortname'" . ($this->create_or_update_course() ? '❌' : '✅') . ". ";
+            echo "User '$this->user_username'" . ($this->create_or_update_user() ? '❌' : '✅') . ". ";
+
+
+            // if (!$this->get_enrol()) {
+            //     echo "Enrol '$this->enrol_type' ❌.\n";
+            //     continue;
+            // } else {
+            //     echo "Enrol '$this->enrol_type' ✅.\n";
+            // }
+
+
+            // if (!$this->create_or_update_enrolment()) {
+            //     echo "Enrolment 🆕.";
+            // } else {
+            //     echo "Enrolment ✅.";
+            // }
+
+            // $this->add_user_to_groups();
+
+            echo "\n";
         }
         fclose($handle);
     }
 }
 
-
-process_csv($options['filename']);
+$enrol_manual_enrol_users = new enrol_manual_enrol_users();
+$enrol_manual_enrol_users->process_csv();

@@ -1,5 +1,5 @@
-username,course_shortname,groupname
-u1,course1,group1
+user_username,course_shortname,group_names
+u1,course1,group1;group3
 u2,course1,group2
 u3,course2,group1
 u1,course2,group2
