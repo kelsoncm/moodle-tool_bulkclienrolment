@@ -23,9 +23,18 @@ Notifications_ to complete the installation.
 
 Alternatively, you can run
 
-    $ php admin/cli/upgrade.php
+
+```bash
+php admin/cli/upgrade.php
+```
 
 to complete the installation from the command line.
+
+## How to use:
+
+```bash
+php admin/tool/bulkclienrolment/cli/enrol_manual_enrol_users.php --filename=/var/www/html/admin/tool/bulkclienrolment/examples/simple.csv
+```
 
 ## License ##
 
